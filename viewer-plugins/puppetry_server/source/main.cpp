@@ -233,58 +233,179 @@ int main(int argc, char *argv[]){
         nk_style_set_font(ctx, &font->handle);
     }
     
-    fd_set fds;
 #ifdef __MINGW32__
     HANDLE hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    if(hStdInput == INVALID_HANDLE_VALUE)
+        doWarning("Invalid handle for Std Input");
+    HANDLE hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    if(hStdOutput == INVALID_HANDLE_VALUE)
+        doWarning("Invalid handle for Std Output");
     LPWSADATA wsaData;
     WSAStartup(0x202, wsaData);
-    FILE* fout = fdopen(STDOUT_FILENO, "wb");
-    FILE* fin = fdopen(STDIN_FILENO, "rb");
+#else
+    fd_set fds;
 #endif
     while (running){
         /* TCP Socket */
         if(serverRunning){
-            if(SDLNet_CheckSockets(socket_set, 10) > 0){
-                if(SDLNet_SocketReady(server_socket)) {
-                    int i = 0;
-                    for(; i<MAX_CONNECTIONS; i++){
-                        if(sockets[i] == NULL) break;
-                    }
-                    
-                    if(sockets[i]) {
-                        CloseSocket(i);
-                    }
-                
-                    sockets[i] = SDLNet_TCP_Accept(server_socket);
-                    if(sockets[i] == NULL) return 0;
-                    
-                    if(SDLNet_TCP_AddSocket(socket_set, sockets[i]) == -1) {
-                        doWarning("ER: SDLNet_TCP_AddSocket: %sn", SDLNet_GetError());
-                    }
-                    conns++;
-                    if(initMessage != NULL){
-                        int nSent = SDLNet_TCP_Send(sockets[i], initMessage, initMessageSize);
-                        if(nSent < initMessageSize) {
-                            doWarning("ER: SDLNet_TCP_Send: %sn", SDLNet_GetError());
+            while(true){
+                if(SDLNet_CheckSockets(socket_set, 10) > 0){
+                    if(SDLNet_SocketReady(server_socket)) {
+                        int i = 0;
+                        for(; i<MAX_CONNECTIONS; i++){
+                            if(sockets[i] == NULL) break;
+                        }
+                        
+                        if(sockets[i]) {
                             CloseSocket(i);
                         }
-                    }
-                }
-                for(int i=0; i<MAX_CONNECTIONS; i++) {
-                    if(sockets[i] == NULL) continue;
-                    if(!SDLNet_SocketReady(sockets[i])) continue;
                     
+                        sockets[i] = SDLNet_TCP_Accept(server_socket);
+                        if(sockets[i] == NULL) return 0;
+                        
+                        if(SDLNet_TCP_AddSocket(socket_set, sockets[i]) == -1) {
+                            doWarning("ER: SDLNet_TCP_AddSocket: %sn", SDLNet_GetError());
+                        }
+                        conns++;
+                        if(initMessage != NULL){
+                            int nSent = SDLNet_TCP_Send(sockets[i], initMessage, initMessageSize);
+                            if(nSent < initMessageSize) {
+                                doWarning("ER: SDLNet_TCP_Send: %sn", SDLNet_GetError());
+                                CloseSocket(i);
+                            }
+                        }
+                    }
+                    int socksWithData = 0;
+                    for(int i=0; i<MAX_CONNECTIONS; i++) {
+                        if(sockets[i] == NULL) continue;
+                        if(!SDLNet_SocketReady(sockets[i])) continue;
+                        socksWithData++;
+                        
+                        int packetSize = 0;
+                        while(true){
+                            uint8_t data[1];
+                            int dlen = SDLNet_TCP_Recv(sockets[i], data, 1);
+                        
+                            if(dlen <= 0){
+                                const char* err = SDLNet_GetError();
+                                if(strlen(err) != 0){
+                                    doError("ER: SDLNet_TCP_Recv: %sn", err);
+                                }
+                                CloseSocket(i);
+                                packetSize = -1;
+                                break;
+                            }
+                            if(data[0] == ':'){
+                                break;
+                            }else if(data[0] >= '0' && data[0] <= '9'){
+                                packetSize *= 10;
+                                packetSize += (int)(data[0] - '0');
+                            }else{
+                                //Invalid data, discard and disconnect
+                                CloseSocket(i);
+                                packetSize = -1;
+                                break;
+                            }
+                        }
+                        if(packetSize == -1){
+                            //Client disconnected
+                            break;
+                        }
+                        if(packetSize > 0xFFFF){
+                            //Mega packet, probably malformed.
+                                CloseSocket(i);
+                            break;
+                        }
+                        
+                        uint8_t data[packetSize];
+                        uint8_t *dataPointer = (uint8_t*)data;
+                        int remaining = packetSize;
+                        while(true){
+                            if(remaining <= 0)
+                                break;
+                            int dlen = SDLNet_TCP_Recv(sockets[i], dataPointer, remaining);
+                            
+                            if(dlen < 0){
+                                const char* err = SDLNet_GetError();
+                                if(strlen(err) != 0){
+                                    doError("ER: SDLNet_TCP_Recv: %sn", err);
+                                }
+                                CloseSocket(i);
+                                break;
+                            }
+                            dataPointer += dlen;
+                            remaining -= dlen;
+                        }
+                        if(remaining == 0){
+                            clientMsg++;
+                            
+                            std::string s = std::to_string(packetSize);
+                            int mSize = s.size()+packetSize+1;
+                            uint8_t _msg[mSize];
+                            uint8_t *msg = _msg;
+                            memcpy(msg, s.c_str(), s.size()); msg += s.size();
+                            msg[0] = ':'; msg++;
+                            memcpy(msg, data, packetSize);
+#ifdef __MINGW32__
+                            DWORD tmp;
+                            WriteFile(hStdOutput, _msg, mSize, &tmp, NULL);
+#else
+                            write(STDOUT_FILENO, _msg, mSize);
+#endif
+                        }
+                    }
+                    if(socksWithData == 0)
+                        break;
+                }else{
+                    break;
+                }
+            }
+        }
+        /* stdin socket */
+        while(true){
+#ifdef __MINGW32__
+            DWORD result = WaitForSingleObject(hStdInput, 100);
+            if (result == WAIT_OBJECT_0){
+                break;
+            }
+#else
+            FD_ZERO(&fds);
+            FD_SET(STDIN_FILENO, &fds);
+            struct timeval timeout = {0, 10000};
+            int result = select(FD_SETSIZE, &fds, NULL, NULL, &timeout);
+            if (result == -1 && errno != EINTR)
+            {
+                doError("Error in select: %i", strerror(errno));
+                break;
+            }
+            else if (result == -1 && errno == EINTR)
+            {
+                //we've received and interrupt - handle this
+            }
+            else if (result == 0){
+                break;
+            }
+#endif
+            else
+            {
+                
+#ifndef __MINGW32__
+                DWORD tmp;
+                WriteFile(0, "d", 1, &tmp, NULL);
+                if (FD_ISSET(STDIN_FILENO, &fds))
+                {
+#endif
                     int packetSize = 0;
                     while(true){
                         uint8_t data[1];
-                        int dlen = SDLNet_TCP_Recv(sockets[i], data, 1);
-                    
+#ifdef __MINGW32__
+                    DWORD dlen;
+                    ReadFile(hStdInput, data, 1, &dlen, NULL);
+#else
+                    int dlen = read(STDIN_FILENO, data, 1);
+#endif
                         if(dlen <= 0){
-                            const char* err = SDLNet_GetError();
-                            if(strlen(err) != 0){
-                                doError("ER: SDLNet_TCP_Recv: %sn", err);
-                            }
-                            CloseSocket(i);
+                            doWarning("Viewer socket closed!?");
                             packetSize = -1;
                             break;
                         }
@@ -294,8 +415,7 @@ int main(int argc, char *argv[]){
                             packetSize *= 10;
                             packetSize += (int)(data[0] - '0');
                         }else{
-                            //Invalid data, discard and disconnect
-                            CloseSocket(i);
+                            doWarning("Viewer sent invalid data!");
                             packetSize = -1;
                             break;
                         }
@@ -306,7 +426,7 @@ int main(int argc, char *argv[]){
                     }
                     if(packetSize > 0xFFFF){
                         //Mega packet, probably malformed.
-                            CloseSocket(i);
+                        doWarning("Viewer sent mega data!");
                         break;
                     }
                     
@@ -316,22 +436,21 @@ int main(int argc, char *argv[]){
                     while(true){
                         if(remaining <= 0)
                             break;
-                        int dlen = SDLNet_TCP_Recv(sockets[i], dataPointer, remaining);
+#ifdef __MINGW32__
+                        DWORD dlen;
+                        ReadFile(hStdInput, data, remaining, &dlen, NULL);
+#else
+                        int dlen = read(STDIN_FILENO, dataPointer, remaining);
+#endif
                         
                         if(dlen < 0){
-                            const char* err = SDLNet_GetError();
-                            if(strlen(err) != 0){
-                                doError("ER: SDLNet_TCP_Recv: %sn", err);
-                            }
-                            CloseSocket(i);
+                            doWarning("Viewer socket closed!?");
                             break;
                         }
                         dataPointer += dlen;
                         remaining -= dlen;
                     }
                     if(remaining == 0){
-                        clientMsg++;
-                        
                         std::string s = std::to_string(packetSize);
                         int mSize = s.size()+packetSize+1;
                         uint8_t _msg[mSize];
@@ -339,125 +458,28 @@ int main(int argc, char *argv[]){
                         memcpy(msg, s.c_str(), s.size()); msg += s.size();
                         msg[0] = ':'; msg++;
                         memcpy(msg, data, packetSize);
-#ifdef __MINGW32__
-                        DWORD bytesWritten;
-                        WriteFile(fout, _msg, mSize, &bytesWritten, NULL);
-#else
-                        write(STDOUT_FILENO, _msg, mSize);
-#endif
-                    }
-                }
-            }
-        }
-        
-        /* stdin socket */
-#ifdef __MINGW32__
-        DWORD result = WaitForSingleObject(hStdInput, 10); 
-        if (result != WAIT_OBJECT_0){
-            //Nothing
-        }
-#else
-        FD_ZERO(&fds);
-        FD_SET(STDIN_FILENO, &fds);
-        struct timeval timeout = {0, 10000};
-        int result = select(FD_SETSIZE, &fds, NULL, NULL, &timeout);
-        if (result == -1 && errno != EINTR)
-        {
-            doError("Error in select: %i", strerror(errno));
-            break;
-        }
-        else if (result == -1 && errno == EINTR)
-        {
-            //we've received and interrupt - handle this
-        }
-#endif
-        else
-        {
-            if (FD_ISSET(STDIN_FILENO, &fds))
-            {
-                int packetSize = 0;
-                while(true){
-                    uint8_t data[1];
-#ifdef __MINGW32__
-                    DWORD dlen;
-                    ReadFile(fin, data, 1, &dlen, NULL);
-#else
-                    int dlen = read(STDIN_FILENO, data, 1);
-#endif
-                    if(dlen <= 0){
-                        doWarning("Viewer socket closed!?");
-                        packetSize = -1;
-                        break;
-                    }
-                    if(data[0] == ':'){
-                        break;
-                    }else if(data[0] >= '0' && data[0] <= '9'){
-                        packetSize *= 10;
-                        packetSize += (int)(data[0] - '0');
-                    }else{
-                        doWarning("Viewer sent invalid data!");
-                        packetSize = -1;
-                        break;
-                    }
-                }
-                if(packetSize == -1){
-                    //Client disconnected
-                    break;
-                }
-                if(packetSize > 0xFFFF){
-                    //Mega packet, probably malformed.
-                    doWarning("Viewer sent mega data!");
-                    break;
-                }
-                
-                uint8_t data[packetSize];
-                uint8_t *dataPointer = (uint8_t*)data;
-                int remaining = packetSize;
-                while(true){
-                    if(remaining <= 0)
-                        break;
-#ifdef __MINGW32__
-                    DWORD dlen;
-                    ReadFile(fin, dataPointer, remaining, &dlen, NULL);
-#else
-                    int dlen = read(STDIN_FILENO, dataPointer, remaining);
-#endif
-                    
-                    if(dlen < 0){
-                        doWarning("Viewer socket closed!?");
-                        break;
-                    }
-                    dataPointer += dlen;
-                    remaining -= dlen;
-                }
-                if(remaining == 0){
-                    std::string s = std::to_string(packetSize);
-                    int mSize = s.size()+packetSize+1;
-                    uint8_t _msg[mSize];
-                    uint8_t *msg = _msg;
-                    memcpy(msg, s.c_str(), s.size()); msg += s.size();
-                    msg[0] = ':'; msg++;
-                    memcpy(msg, data, packetSize);
-                    if(initMessage == NULL){
-                        initMessage = (uint8_t *)malloc(mSize);
-                        initMessageSize = mSize;
-                        memcpy(initMessage, _msg, initMessageSize);
-                    }
-                    viewerMsg++;
-                    if(serverRunning){
-                        for(int i=0; i<MAX_CONNECTIONS; i++) {
-                            if(sockets[i] == NULL) continue;
-                            int nSent = SDLNet_TCP_Send(sockets[i], _msg, mSize);
-                            if(nSent < mSize) {
-                                doWarning("ER: SDLNet_TCP_Send: %sn", SDLNet_GetError());
-                                CloseSocket(i);
+                        if(initMessage == NULL){
+                            initMessage = (uint8_t *)malloc(mSize);
+                            initMessageSize = mSize;
+                            memcpy(initMessage, _msg, initMessageSize);
+                        }
+                        viewerMsg++;
+                        if(serverRunning){
+                            for(int i=0; i<MAX_CONNECTIONS; i++) {
+                                if(sockets[i] == NULL) continue;
+                                int nSent = SDLNet_TCP_Send(sockets[i], _msg, mSize);
+                                if(nSent < mSize) {
+                                    doWarning("ER: SDLNet_TCP_Send: %sn", SDLNet_GetError());
+                                    CloseSocket(i);
+                                }
                             }
                         }
                     }
+#ifndef __MINGW32__
                 }
+#endif
             }
         }
-        
         /* Input */
         SDL_Event evt;
         nk_input_begin(ctx);
