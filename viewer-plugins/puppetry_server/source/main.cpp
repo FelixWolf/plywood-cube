@@ -10,7 +10,11 @@
 #include <assert.h>
 #include <limits.h>
 #include <time.h>
+#if __MINGW32__
+#include <winsock2.h>
+#else
 #include <unistd.h>
+#endif
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_net.h>
@@ -230,7 +234,13 @@ int main(int argc, char *argv[]){
     }
     
     fd_set fds;
-    
+#ifdef __MINGW32__
+    HANDLE hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    LPWSADATA wsaData;
+    WSAStartup(0x202, wsaData);
+    FILE* fout = fdopen(STDOUT_FILENO, "wb");
+    FILE* fin = fdopen(STDIN_FILENO, "rb");
+#endif
     while (running){
         /* TCP Socket */
         if(serverRunning){
@@ -329,17 +339,28 @@ int main(int argc, char *argv[]){
                         memcpy(msg, s.c_str(), s.size()); msg += s.size();
                         msg[0] = ':'; msg++;
                         memcpy(msg, data, packetSize);
+#ifdef __MINGW32__
+                        DWORD bytesWritten;
+                        WriteFile(fout, _msg, mSize, &bytesWritten, NULL);
+#else
                         write(STDOUT_FILENO, _msg, mSize);
+#endif
                     }
                 }
             }
         }
         
         /* stdin socket */
+#ifdef __MINGW32__
+        DWORD result = WaitForSingleObject(hStdInput, 10); 
+        if (result != WAIT_OBJECT_0){
+            //Nothing
+        }
+#else
         FD_ZERO(&fds);
         FD_SET(STDIN_FILENO, &fds);
         struct timeval timeout = {0, 10000};
-        int result = select(STDIN_FILENO+1, &fds, NULL, NULL, &timeout);
+        int result = select(FD_SETSIZE, &fds, NULL, NULL, &timeout);
         if (result == -1 && errno != EINTR)
         {
             doError("Error in select: %i", strerror(errno));
@@ -349,6 +370,7 @@ int main(int argc, char *argv[]){
         {
             //we've received and interrupt - handle this
         }
+#endif
         else
         {
             if (FD_ISSET(STDIN_FILENO, &fds))
@@ -356,8 +378,12 @@ int main(int argc, char *argv[]){
                 int packetSize = 0;
                 while(true){
                     uint8_t data[1];
+#ifdef __MINGW32__
+                    DWORD dlen;
+                    ReadFile(fin, data, 1, &dlen, NULL);
+#else
                     int dlen = read(STDIN_FILENO, data, 1);
-                
+#endif
                     if(dlen <= 0){
                         doWarning("Viewer socket closed!?");
                         packetSize = -1;
@@ -390,7 +416,12 @@ int main(int argc, char *argv[]){
                 while(true){
                     if(remaining <= 0)
                         break;
+#ifdef __MINGW32__
+                    DWORD dlen;
+                    ReadFile(fin, dataPointer, remaining, &dlen, NULL);
+#else
                     int dlen = read(STDIN_FILENO, dataPointer, remaining);
+#endif
                     
                     if(dlen < 0){
                         doWarning("Viewer socket closed!?");
@@ -526,6 +557,9 @@ int main(int argc, char *argv[]){
     }
 
 cleanup:
+#ifdef __MINGW32__
+    WSACleanup();
+#endif
     nk_sdl_shutdown();
     SDLNet_Quit();
     SDL_DestroyRenderer(renderer);

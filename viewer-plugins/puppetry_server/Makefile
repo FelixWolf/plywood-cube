@@ -4,8 +4,17 @@
 
 TOPDIR ?= $(CURDIR)
 
+TARGETOS	:= linux
+
+ifeq ($(TARGETOS), linux)
 PREFIX		:=	
-#PREFIX		:=	x86_64-w64-mingw32-
+else ifeq ($(TARGETOS), windows)
+PREFIX		:=	x86_64-w64-mingw32-
+else
+@echo Unknown target OS
+@exit 0
+endif
+
 
 export CC	:=	$(PREFIX)gcc
 export CXX	:=	$(PREFIX)g++
@@ -61,13 +70,23 @@ CXXFLAGS	:= $(CFLAGS) -std=gnu++11
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
+
+ifeq ($(TARGETOS), linux)
 LIBS	:= -lSDL2 -lSDL2_net -lm
+else ifeq ($(TARGETOS), windows)
+LIBS	:= -lmingw32 -lSDL2main -lSDL2 -lSDL2_net -lws2_32 -static-libgcc -static-libstdc++ -Wl,-Bstatic -lstdc++ -lpthread -Wl,-Bdynamic -lm
+endif
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
+
+ifeq ($(TARGETOS), linux)
 LIBDIRS	:= /usr
+else ifeq ($(TARGETOS), windows)
+LIBDIRS	:= /usr/x86_64-w64-mingw32 /opt/mingw/x86_64-w64-mingw32/
+endif
 
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional
@@ -76,7 +95,7 @@ LIBDIRS	:= /usr
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 #---------------------------------------------------------------------------------
 
-export OUTPUT	:=	$(CURDIR)/$(TARGET)
+export OUTPUT	:=	$(CURDIR)/build/$(TARGET)
 export TOPDIR	:=	$(CURDIR)
 
 export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
@@ -131,7 +150,7 @@ $(BUILD):
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).x86_64 $(TARGET).i686 $(TARGET).elf
+	@rm -fr $(BUILD) build/$(TARGET).x86_64 $(TARGET).i686 $(TARGET).exe
 
 
 #---------------------------------------------------------------------------------
@@ -172,7 +191,12 @@ DEPENDS	:=	$(OFILES:.o=.d)
 	$(SILENTCMD)$(CC) -MMD -MP -MF $(DEPSDIR)/$*.d -x assembler-with-cpp $(ASFLAGS) -c $< -o $@ $(ERROR_FILTER)
 
 
-%.elf:
+%.x86_64:
+	$(SILENTMSG) linking $(notdir $@)
+	$(SILENTCMD)$(LD) $(LDFLAGS) $(OFILES) $(LIBPATHS) $(LIBS) -o $@
+	$(SILENTCMD)$(NM) -CSn $@ > $(notdir $*.lst)
+
+%.exe:
 	$(SILENTMSG) linking $(notdir $@)
 	$(SILENTCMD)$(LD) $(LDFLAGS) $(OFILES) $(LIBPATHS) $(LIBS) -o $@
 	$(SILENTCMD)$(NM) -CSn $@ > $(notdir $*.lst)
@@ -180,11 +204,15 @@ DEPENDS	:=	$(OFILES:.o=.d)
 #---------------------------------------------------------------------------------
 # main targets
 #---------------------------------------------------------------------------------
-$(OUTPUT).x86_64: $(OUTPUT).elf
+ifeq ($(TARGETOS), linux)
+$(OUTPUT).x86_64: $(OUTPUT)
+else ifeq ($(TARGETOS), windows)
+$(OUTPUT).exe: $(OUTPUT)
+endif
 
 $(OFILES_SOURCES): $(HFILES)
 
-$(OUTPUT).elf: $(OFILES)
+$(OUTPUT): $(OFILES)
 
 -include $(DEPENDS)
 
