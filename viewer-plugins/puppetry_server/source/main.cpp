@@ -240,6 +240,8 @@ int main(int argc, char *argv[]){
     HANDLE hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
     if(hStdOutput == INVALID_HANDLE_VALUE)
         doWarning("Invalid handle for Std Output");
+    SetConsoleMode(hStdInput, 0);
+    FlushConsoleInputBuffer(hStdInput);
     LPWSADATA wsaData;
     WSAStartup(0x202, wsaData);
 #else
@@ -364,8 +366,9 @@ int main(int argc, char *argv[]){
         /* stdin socket */
         while(true){
 #ifdef __MINGW32__
-            DWORD result = WaitForSingleObject(hStdInput, 100);
-            if (result == WAIT_OBJECT_0){
+            DWORD lpBytesRead;
+            PeekNamedPipe(hStdInput, NULL, NULL, NULL, &lpBytesRead, NULL);
+            if (lpBytesRead == 0){
                 break;
             }
 #else
@@ -390,8 +393,6 @@ int main(int argc, char *argv[]){
             {
                 
 #ifndef __MINGW32__
-                DWORD tmp;
-                WriteFile(0, "d", 1, &tmp, NULL);
                 if (FD_ISSET(STDIN_FILENO, &fds))
                 {
 #endif
