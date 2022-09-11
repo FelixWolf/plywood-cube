@@ -85,13 +85,15 @@ class PuppetrySession:
                 r = r.inverted()
             
             r.normalize()
+            
+            
             if fcurve.group.name not in updates:
                 updates[fcurve.group.name] = {}
             
             updates[fcurve.group.name]["local_rot"] = [
                 r.x,
+                r.y,
                 r.z,
-                -r.y,
             ]
             
             if fcurve.group.name not in self.last:

@@ -21,7 +21,8 @@ def add_skeleton(self, context):
             "end_orig": [float(i) for i in bone.attrib["end"].split(" ")],
             "rot_orig": [float(i) for i in bone.attrib["rot"].split(" ")],
             "scale_orig": [float(i) for i in bone.attrib["scale"].split(" ")],
-            "parent": parent["name"] if bone.attrib.get("connected", "false") == "true" else None,
+            "parent": parent["name"] if parent else False,
+            "connected": bone.attrib.get("connected", "false").lower() == "true",
             "group": bone.tag
         }
         
@@ -62,7 +63,9 @@ def add_skeleton(self, context):
         b.tail = bone["end"]
         if bone["parent"]:
             b.parent = boners[bone["parent"]]
-    
+        
+        if bone["connected"]:
+            b.use_connect = True
     #Remove auto-created bone
     bpy.ops.object.mode_set(mode='EDIT',toggle=True)
     pose.bone_groups.new(name="bone")
