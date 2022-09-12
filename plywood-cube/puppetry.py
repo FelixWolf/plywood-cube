@@ -75,17 +75,19 @@ class PuppetrySession:
             if fcurve.group.name not in arm.pose.bones:
                 continue
             
-            l = arm.data.bones[fcurve.group.name].matrix_local.to_quaternion()
-            r = arm.pose.bones[fcurve.group.name].matrix_basis.to_quaternion()
+            db = arm.data.bones[fcurve.group.name]
+            pb = arm.pose.bones[fcurve.group.name]
             
-            parent = arm.pose.bones[fcurve.group.name].parent
+            mat = pb.matrix_channel.to_3x3()
+            if pb.parent:
+                mat = pb.parent.matrix_channel.to_3x3().inverted() @ mat
             
-            r = r
-            if r.w < 0:
-                r = r.inverted()
+            r = mat.to_quaternion()
             
             r.normalize()
             
+            if r.w < 0:
+                r = r.inverted()
             
             if fcurve.group.name not in updates:
                 updates[fcurve.group.name] = {}
@@ -103,6 +105,10 @@ class PuppetrySession:
                     if check not in self.last[fcurve.group.name]:
                         shouldUpdate = True
                     elif self.last[fcurve.group.name][check] != updates[fcurve.group.name][check]:
+                        shouldUpdate = True
+                        
+                for check in self.last[fcurve.group.name].keys():
+                    if check not in updates[fcurve.group.name]:
                         shouldUpdate = True
         
         now = time.time()
