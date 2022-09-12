@@ -32,6 +32,8 @@
 #include "nuklear.h"
 #include "nuklear_sdl_renderer.h"
 
+#include "icon.h"
+
 
 #define WINDOW_TITLE "Puppetry Server"
 #define WINDOW_WIDTH 256
@@ -185,7 +187,11 @@ int main(int argc, char *argv[]){
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         WINDOW_WIDTH, WINDOW_HEIGHT,
         SDL_WINDOW_SHOWN|SDL_WINDOW_ALLOW_HIGHDPI|SDL_WINDOW_BORDERLESS);
-
+    
+    SDL_Surface *surface_icon = SDL_CreateRGBSurfaceFrom(BITMAP_ICON,256,256,32,4*256,0xff000000,0x00ff0000,0x0000ff00,0x000000ff);
+    SDL_SetWindowIcon(win, surface_icon);
+    SDL_FreeSurface(surface_icon);
+    
     if (win == NULL) {
         doError("Error SDL_CreateWindow %s", SDL_GetError());
     }
