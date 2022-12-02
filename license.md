@@ -1,8 +1,9 @@
 # Mixed license
 
-* Anything that is a python script that *does not* interface with blender(I.E. does not imports bpy or similar) is zlib licensed.
-* Anything that is a python script that *does* interface with blender(I.E. does import bpy) is GPL licensed.
-* Assets such as the Second Life avatar appearance information is licensed under a CC-BY-SA license. See [This page](https://wiki.secondlife.com/wiki/Linden_Lab_Official:Second_Life_Viewer_Licensing_Program) for more information.
+* Source code is licensed under zlib
+* Original assets are licensed under CC0.
+* Second Life avatar appearance information is licensed under a CC-BY-SA license.
+ See [This page](https://wiki.secondlife.com/wiki/Linden_Lab_Official:Second_Life_Viewer_Licensing_Program) for more information.
 
 ## zlib
 Copyright (c) 2022 Kyler "Félix" Eastridge
@@ -22,21 +23,6 @@ freely, subject to the following restrictions:
 2. Altered source versions must be plainly marked as such, and must not be
    misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
-
-## GPL
-This program is free software; you can redistribute it and/or
-modify it under the terms of the GNU General Public License
-as published by the Free Software Foundation; either version 2
-of the License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software Foundation,
-Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
 ## CC-BY-SA
 All or some of this content is licensed under a
