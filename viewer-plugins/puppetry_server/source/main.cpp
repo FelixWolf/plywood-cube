@@ -412,7 +412,8 @@ int main(int argc, char *argv[]){
                     int dlen = read(STDIN_FILENO, data, 1);
 #endif
                         if(dlen <= 0){
-                            doWarning("Viewer socket closed!?");
+                            //doWarning("Viewer socket closed!?");
+                            exit(1); //Viewer exiting
                             packetSize = -1;
                             break;
                         }
@@ -451,7 +452,8 @@ int main(int argc, char *argv[]){
 #endif
                         
                         if(dlen < 0){
-                            doWarning("Viewer socket closed!?");
+                            //doWarning("Viewer socket closed!?");
+                            exit(1); //Viewer exiting
                             break;
                         }
                         dataPointer += dlen;
