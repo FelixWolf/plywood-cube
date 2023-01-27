@@ -76,7 +76,7 @@ LDFLAGS	=	-g $(ARCH) -Wl,-Map,$(notdir $*.map)
 ifeq ($(TARGETOS), linux)
 LIBS	:= -lSDL2 -lSDL2_net -lm
 else ifeq ($(TARGETOS), windows)
-LIBS	:= -lmingw32 -lSDL2main -lSDL2 -lSDL2_net -lws2_32 -static-libgcc -static-libstdc++ -Wl,-Bstatic -lstdc++ -lpthread -Wl,-Bdynamic -lm -mwindows
+LIBS	:= -lmingw32 -lSDL2main -lSDL2 -lSDL2_net -lws2_32 -static -static-libgcc -static-libstdc++ -Wl,-Bstatic -lstdc++ -lpthread -Wl,-Bdynamic -lm -mwindows
 endif
 
 #---------------------------------------------------------------------------------
