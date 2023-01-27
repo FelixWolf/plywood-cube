@@ -157,7 +157,7 @@ class PuppetrySession:
             self.send("puppetry", {
                 "command": "set",
                 "reply": None,
-                "set": {
+                "data": {
                     #Could also use "joint_state" instead of "j"
                     "j": updates
                 }
