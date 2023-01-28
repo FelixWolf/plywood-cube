@@ -5,7 +5,7 @@ import bl_math
 import math
 import bpy.props
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
-from mathutils import Vector
+from mathutils import Vector, Matrix
 import llbase.llsd
 import socket
 import errno
@@ -94,6 +94,8 @@ class PuppetrySession:
             return 1
         
         arm = bpy.data.objects[self.props.Target]
+        orient = self.props.ArmatureOrientationMatrix
+        orientI = orient.inverted()
         
         updates = {}
         shouldUpdate = False
@@ -101,7 +103,7 @@ class PuppetrySession:
             if bn not in self.props.Transmit:
                 continue
             
-            if not (self.props.Transmit[bn].position \
+            if not (self.props.Transmit[bn].position
                     or self.props.Transmit[bn].rotation):
                 continue
             
@@ -111,6 +113,7 @@ class PuppetrySession:
             mat = pb.matrix_channel
             if pb.parent:
                 mat = pb.parent.matrix_channel.inverted() @ mat
+            mat = orientI @ mat @ orient
             
             r = mat.to_3x3().to_quaternion()
             
@@ -260,6 +263,10 @@ class PuppetryProperties(bpy.types.PropertyGroup):
     )
     
     Armatures: bpy.props.CollectionProperty(type=StringArrayProperty)
+    ArmatureOrientation: bpy.props.EnumProperty(name="Orientation", items=(
+        ("SL", "SL (+X forward)", "Bone orientations are exported to SL without transformation", 0),
+        ("Blender", "Blender (-Y forward)", "Rotate bone orientations 90 degrees left before export", 1),
+    ))
     
     Target: bpy.props.StringProperty(name="Target")
     
@@ -274,6 +281,16 @@ class PuppetryProperties(bpy.types.PropertyGroup):
         min=0.05,
         max=5
     )
+    
+    @property
+    def ArmatureOrientationMatrix(self):
+        if self.ArmatureOrientation == "Blender":
+            return Matrix(((0, 1, 0, 0),
+                           (-1, 0, 0, 0),
+                           (0, 0, 1, 0),
+                           (0, 0, 0, 1)))
+        else:
+            return Matrix()
 
 
 class VIEW3D_PT_puppetry_connect(bpy.types.Panel):
@@ -358,6 +375,8 @@ class VIEW3D_PT_puppetry_armature(bpy.types.Panel):
         props = scene.puppetry
         
         layout.prop_search(props, "Target", props, "Armatures", text="", icon="ARMATURE_DATA")
+        layout.prop(props, "ArmatureOrientation")
+        
         layout.separator()
         layout.prop(props, "UpdateTime")
         row = layout.row()
@@ -365,7 +384,7 @@ class VIEW3D_PT_puppetry_armature(bpy.types.Panel):
         row = layout.row(align=True)
         btn = row.operator("puppetry.skeletonedit", text="Sync Skeleton")
         btn.action = 0
-        
+
         btn = row.operator("puppetry.skeletonedit", text="Reset Skeleton")
         btn.action = 1
         """
