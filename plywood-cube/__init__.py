@@ -44,7 +44,7 @@ from bpy.types import (
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
 from . import sl_skeleton
 from . import sl_avatar
-from . import puppetry
+#from . import puppetry
 from . import tools
 
 #Avatar
@@ -104,7 +104,7 @@ def add_secondlife_menu_func(self, context):
 
 importlib.reload(sl_skeleton)
 importlib.reload(sl_avatar)
-importlib.reload(puppetry)
+#importlib.reload(puppetry)
 importlib.reload(tools)
 
 def register():
@@ -116,7 +116,7 @@ def register():
     tools.register()
     sl_skeleton.register()
     sl_avatar.register()
-    puppetry.register()
+    #puppetry.register()
 
 def unregister():
     for cls in reversed(module_classes):
@@ -127,7 +127,7 @@ def unregister():
     tools.unregister()
     sl_skeleton.unregister()
     sl_avatar.unregister()
-    puppetry.unregister()
+    #puppetry.unregister()
 
 
 if __name__ == "__main__":

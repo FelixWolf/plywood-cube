@@ -86,15 +86,19 @@ def unpackFile(handle, lod = 0):
             jCount, = sUInt16.unpack(handle.read(sUInt16.size))
             joints = [None] * jCount
             for i in range(jCount):
-                joints[i] = handle.read(64).split(b"\0")[0].decode()
-        
+                jointName = handle.read(64)
+                if len(jointName) != 64:
+                    raise Exception("Unexpected end of joint data!")
+                
+                joints[i] = jointName.split(b"\0",1)[0].decode()
+                
         morphs = {}
         while True:
             morphName = handle.read(64)
             if len(morphName) != 64:
                 break
             
-            morphName = morphName.split(b"\0")[0].decode()
+            morphName = morphName.split(b"\0",1)[0].decode()
             if morphName == "End Morphs":
                 break
             
@@ -122,11 +126,15 @@ def unpackFile(handle, lod = 0):
             }
         
         rCount, = sUInt32.unpack(handle.read(sUInt32.size))
+        
+        # Remaps are used to declare shared vertices when generating clothing
+        # morphs. We don't need these, but get them just in case.
+        # See indra/llappearance/llpolymorph.cpp
         remaps = {}
         for i in range(rCount):
             a, b = sUInt32_2.unpack(handle.read(sUInt32_2.size))
             remaps[a] = b
-    
+        
     return {
         "lod": lod,
         "position": position,
@@ -197,7 +205,7 @@ class LindenMeshLOD:
         self._detailTexcoords = data["detailTexcoords"]
         self._weights = data["weights"]
         self._joints = data["joints"]
-        self._morphs = {k:LindenMeshMorph.load(v, self) for k,v in data["morphs"].items()}
+        self._morphs = {k: LindenMeshMorph.load(v, self) for k,v in data["morphs"].items()}
         self._remaps = data["remaps"]
         
         return self
@@ -265,7 +273,7 @@ class LindenMesh:
     @classmethod
     def load(cls, path, loadLODs = False):
         self = cls(os.path.split(path)[-1])
-        
+        print(path)
         with open(path+".llm", "rb") as f:
             self.lods.append(LindenMeshLOD.load(unpackFile(f), self))
         
@@ -277,18 +285,46 @@ class LindenMesh:
                     with open(path+"_{}.llm".format(i), "rb") as f:
                         self.lods.append(LindenMeshLOD.load(unpackFile(f, i), self))
                     i += 1
+                
                 except FileNotFoundError:
                     break
         
         return self
 
-#BEGIN TEST CODE
-def addLindenMesh(lm, lod = 0):
+def buildJointPairs(armature_obj, joint_names):
+    result = []
+
+    # Make a lookup for bones by name
+    bones_by_name = {b.name: b for b in armature_obj.data.bones}
+
+    for name in joint_names:
+        if name not in bones_by_name:
+            print(f"[WARN] joint '{name}' not found in armature!")
+            continue
+        
+        bone2_name = name
+        while True:
+            joint = bones_by_name[bone2_name]
+
+            if joint.parent:
+                bone2_name = joint.parent.name
+                if bone2_name in joint_names:
+                    break
+            else:
+                bone2_name = name  # root bone with no children
+                break
+
+        result.append((name, bone2_name))
+
+    return result
+
+def addLindenMesh(lm, lod = 0, armature = None):
     #Create the base data
     mesh = bpy.data.meshes.new(lm.name)
     obj = bpy.data.objects.new(mesh.name, mesh)
     col = bpy.data.collections["Collection"]
     col.objects.link(obj)
+    
     #Import the vertices and faces
     mesh.from_pydata(lm.lods[lod].vertices, [], lm.lods[lod].faces)
     mesh.polygons.foreach_set("use_smooth", [True]*len(lm.lods[lod].faces))
@@ -299,22 +335,37 @@ def addLindenMesh(lm, lod = 0):
         uv.data[loop.index].uv = lm.lods[lod].texcoords[loop.vertex_index]
     
     #Import normal
-    obj.data.use_auto_smooth = True
-    obj.data.normals_split_custom_set_from_vertices( lm.lods[lod].normals )
+    obj.data.normals_split_custom_set_from_vertices(lm.lods[lod].normals)
     
     #Add vertex groups
-    if lm.lods[lod].weights:
-        weights = [None] * len(lm.lods[lod].weights)
-        for i in range(len(lm.lods[lod].weights)):
-            joint = math.floor(lm.lods[lod].weights[i]) - 1
-            value = lm.lods[lod].weights[i] - math.floor(joint)
-            weights[i] = (joint, value)
+    if armature and lm.lods[lod].weights:
+        vg_map = {}
+        for joint in lm.lods[lod].joints:
+            if joint not in obj.vertex_groups:
+                vg_map[joint] = obj.vertex_groups.new(name=joint)
+            else:
+                vg_map[joint] = obj.vertex_groups[joint]
         
-        for jointIndex, joint in enumerate(lm.lods[lod].joints):
-            vg = obj.vertex_groups.new(name=joint)
-            for vert in range(len(weights)):
-                if weights[vert][0] == jointIndex:
-                    vg.add([vert], weights[vert][1], "ADD")
+        jointMap = buildJointPairs(armature, lm.lods[lod].joints)
+        # Now assign weights
+        for vert, w in enumerate(lm.lods[lod].weights):
+            if vert in lm.lods[lod].remaps:
+                vert = lm.lods[lod].remaps[vert]
+            
+            boneIndex = int(math.floor(w))
+            boneWeight = w - boneIndex
+            
+            boneIndex = boneIndex - 1
+            try:
+                vg1 = vg_map[jointMap[boneIndex][0]]
+                vg1.add([vert], 1-boneWeight, "ADD")
+            
+                vg2 = vg_map[jointMap[boneIndex][1]]
+                vg2.add([vert], boneWeight, "ADD")
+            except Exception as e:
+                print("Vert", vert)
+                print(jointMap)
+                print(boneIndex)
     
     #Add morphs
     if lm.lods[lod].morphs:
@@ -351,7 +402,7 @@ def attachMeshesToArmature(armature, meshes=None):
     added = []
     for mesh in meshes:
         lm = LindenMesh.load(os.path.join(asset_path, mesh))
-        obj = addLindenMesh(lm)
+        obj = addLindenMesh(lm, armature = armature)
         added.append(obj)
         
         #Don't parent anything if we don't have a armature selected
@@ -394,71 +445,3 @@ def register():
 
 def unregister():
     pass
-
-if __name__ == "__main__":
-    #List of meshes to import
-    meshes = [
-        "avatar_upper_body",
-        "avatar_lower_body",
-        "avatar_head",
-        "avatar_hair",
-        "avatar_eyelashes",
-        "avatar_eye", #One eye for each eye
-        "avatar_eye",
-        "avatar_skirt"
-    ]
-    
-    
-    for mesh in meshes:
-        for object in bpy.data.objects.keys():
-            if object.startswith(mesh):
-                bpy.data.objects.remove(bpy.data.objects[object], do_unlink=True)
-    
-    
-    targetArm = None
-    
-    for object in bpy.data.objects:
-        if object.type == 'ARMATURE':
-            targetArm = object
-            break
-    
-    
-    eyed = 0 #Eye-D tracker, get it, ID, EyeD....
-    
-    for mesh in meshes:
-        lm = LindenMesh.load(os.path.join(asset_path, mesh))
-        obj = addLindenMesh(lm)
-        
-        #Don't parent anything if we don't have a armature selected
-        if targetArm:
-            obj.parent = targetArm
-            
-            #If we are adding eyes...
-            if mesh == "avatar_eye":
-                if eyed == 0:
-                    obj.parent_type = "BONE"
-                    obj.parent_bone = "mEyeLeft"
-                
-                elif eyed == 1:
-                    obj.parent_type = "BONE"
-                    obj.parent_bone = "mEyeRight"
-                
-                else:
-                    #This should never happen
-                    #It only exists as a sanity check
-                    raise Exception("Too many eyes!")
-                
-                #Rotate the eyes to face the front
-                obj.rotation_euler.z = math.radians(90)
-                
-                #Offset the eyes so that they rotate at the bone Head instead of bone Tail
-                offset = targetArm.data.bones[obj.parent_bone].tail \
-                 - targetArm.data.bones[obj.parent_bone].head
-                obj.location.y = -offset.x
-                
-                eyed += 1
-            
-            #Everything else
-            else:
-                arm = obj.modifiers.new(type="ARMATURE", name="Armature")
-                arm.object = targetArm

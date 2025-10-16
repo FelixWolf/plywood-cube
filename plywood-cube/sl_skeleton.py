@@ -71,14 +71,20 @@ def add_skeleton(self, context):
         if bone["connected"]:
             b.use_connect = True
     
-    #Remove auto-created bone
-    bpy.ops.object.mode_set(mode='EDIT',toggle=True)
-    pose.bone_groups.new(name="bone")
-    pose.bone_groups.new(name="collision_volume")
-    pose.bone_groups["collision_volume"].color_set = "THEME01"
+    # Remove auto-created bone
+    bpy.ops.object.mode_set(mode='EDIT', toggle=True)
+    
+    # Create bone collections
+    bone_collection = armature.collections.new(name="bone")
+    collision_collection = armature.collections.new(name="collision_volume")
+    
     bone_matrix = {}
     for bone in bones:
-        pose.bones[bone["name"]].bone_group = pose.bone_groups[bone["type"]]
+        # Assign bones to collections based on type
+        if bone["type"] == "collision_volume":
+            armature.collections["collision_volume"].assign(pose.bones[bone["name"]])
+        else:
+            armature.collections["bone"].assign(pose.bones[bone["name"]])
         bone_matrix[bone["name"]] = armature.bones[bone["name"]].matrix_local
     
     armature_obj.location = (0,0,0)
@@ -110,4 +116,3 @@ def unregister():
         bpy.utils.unregister_class(cls)
     #bpy.utils.unregister_manual_map(add_skeleton_manual_map)
     #bpy.types.VIEW3D_MT_add.remove(add_skeleton_button)
-
